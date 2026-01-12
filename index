@@ -1,6 +1,0 @@
-# Create the React app structure
-npx create-react-app . --use-npm
-
-# Install necessary libraries
-npm install lucide-react gh-pages
-
