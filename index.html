@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Classroom Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .desk-gap { margin-right: 2.5rem; }
+        .desk-standard { margin-right: 0.25rem; }
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-900">
+
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-slate-900 text-white flex flex-col p-6 border-r border-slate-700">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="bg-blue-600 p-2 rounded-lg">
+                    <i class="fas fa-chalkboard-user"></i>
+                </div>
+                <h1 class="font-bold text-lg tracking-tight">ClassManager</h1>
+            </div>
+
+            <nav class="space-y-2 flex-1">
+                <button onclick="setView('setup')" id="btn-setup" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-600 text-white shadow-lg text-left">
+                    <i class="fas fa-cog w-5"></i> Setup Layout
+                </button>
+                <button onclick="setView('live')" id="btn-live" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 text-left">
+                    <i class="fas fa-check-double w-5"></i> Live Session
+                </button>
+                <button onclick="setView('records')" id="btn-records" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 text-left">
+                    <i class="fas fa-table w-5"></i> Records
+                </button>
+            </nav>
+
+            <div class="pt-6 border-t border-slate-800">
+                <p class="text-xs text-slate-500 uppercase font-bold mb-4 tracking-wider">Student Roster</p>
+                <div id="student-list" class="max-h-48 overflow-y-auto space-y-2 mb-4 pr-2"></div>
+                <button onclick="promptAddStudent()" class="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-slate-700 rounded-lg text-slate-400 hover:text-white text-xs transition-colors">
+                    <i class="fas fa-user-plus"></i> Add Student
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col p-8 overflow-y-auto">
+            <header class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 id="view-title" class="text-2xl font-extrabold tracking-tight">Seating Chart</h2>
+                    <p id="view-desc" class="text-slate-500 text-sm">Assign students to desks below.</p>
+                </div>
+                <div id="header-actions" class="hidden">
+                    <button onclick="finalizeSession()" id="save-btn" class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg transition-all active:scale-95">
+                        <i class="fas fa-save"></i> Save Session
+                    </button>
+                </div>
+                <div id="record-actions" class="hidden">
+                    <button onclick="downloadCSV()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg transition-all">
+                        <i class="fas fa-download"></i> Export CSV
+                    </button>
+                </div>
+            </header>
+
+            <div id="classroom-container" class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 flex flex-col h-full overflow-hidden">
+                <!-- Column-based Selection (Live View Only) -->
+                <div id="bulk-controls" class="hidden flex gap-0 mb-6 border-b pb-6 justify-center"></div>
+
+                <div class="flex-1 overflow-y-auto pr-2">
+                    <div id="seating-grid" class="flex flex-col gap-3 items-center mb-8"></div>
+
+                    <!-- Whiteboard (Opposite end from Row 0) -->
+                    <div class="flex justify-center mt-8 pb-4">
+                        <div class="w-2/3 h-14 bg-slate-800 rounded-t-2xl flex items-center justify-center text-slate-300 gap-3 border-b-4 border-slate-600 shadow-md">
+                            <i class="fas fa-desktop"></i>
+                            <span class="uppercase tracking-[0.4em] text-[10px] font-black">WHITEBOARD</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="records-container" class="hidden bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="bg-slate-50 border-b border-slate-200">
+                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Timestamp</th>
+                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Student</th>
+                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-center">Present</th>
+                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-center">Submitted</th>
+                        </tr>
+                    </thead>
+                    <tbody id="records-body" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        /**
+         * CONFIGURATION
+         * 1. Deploy your Google Apps Script as a Web App (Access: Anyone).
+         * 2. Paste the URL between the quotes below.
+         */
+        const GOOGLE_SCRIPT_URL = ''; 
+
+        // State Management
+        let currentView = 'setup';
+        let students = [
+            { id: '1', name: 'Student 1' },
+            { id: '2', name: 'Student 2' }
+        ];
+        let seating = {}; 
+        let attendance = {}; 
+        let submissions = {}; 
+        let sessionRecords = [];
+
+        function init() {
+            renderStudentList();
+            renderGrid();
+            renderBulkControls();
+        }
+
+        function setView(view) {
+            currentView = view;
+            document.getElementById('classroom-container').classList.toggle('hidden', view === 'records');
+            document.getElementById('records-container').classList.toggle('hidden', view !== 'records');
+            document.getElementById('bulk-controls').classList.toggle('hidden', view !== 'live');
+            document.getElementById('header-actions').classList.toggle('hidden', view !== 'live');
+            document.getElementById('record-actions').classList.toggle('hidden', view !== 'records');
+
+            ['setup', 'live', 'records'].forEach(v => {
+                const btn = document.getElementById(`btn-${v}`);
+                btn.className = v === view ? 
+                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-600 text-white shadow-lg text-left" : 
+                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 text-left";
+            });
+
+            document.getElementById('view-title').innerText = view === 'setup' ? 'Seating Chart' : view === 'live' ? 'Attendance' : 'History';
+            renderGrid();
+            if (view === 'records') renderRecordsTable();
+        }
+
+        function promptAddStudent() {
+            const name = window.prompt("Enter student name:");
+            if (name && name.trim()) {
+                students.push({ id: Date.now().toString(), name: name.trim() });
+                renderStudentList();
+            }
+        }
+
+        function removeStudent(id) {
+            students = students.filter(s => s.id !== id);
+            for (let k in seating) if (seating[k] === id) delete seating[k];
+            renderStudentList();
+            renderGrid();
+        }
+
+        function renderStudentList() {
+            const list = document.getElementById('student-list');
+            list.innerHTML = students.map(s => `
+                <div class="text-sm flex justify-between items-center group py-1">
+                    <span class="truncate pr-2">${s.name}</span>
+                    <button onclick="removeStudent('${s.id}')" class="opacity-0 group-hover:opacity-100 text-red-400">
+                        <i class="fas fa-trash-alt text-[10px]"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Layout Helpers
+        const isTable = (r, c) => r === 0 ? (c >= 2 && c <= 5) : true;
+        const getColMargin = (c) => (c === 1 || c === 3 || c === 5) ? 'desk-gap' : 'desk-standard';
+
+        function renderGrid() {
+            const grid = document.getElementById('seating-grid');
+            let html = '';
+            for (let r = 0; r < 6; r++) {
+                html += `<div class="flex">`;
+                for (let c = 0; c < 8; c++) {
+                    const margin = getColMargin(c);
+                    if (!isTable(r, c)) {
+                        html += `<div class="w-24 aspect-square ${margin}"></div>`;
+                        continue;
+                    }
+                    const sId = seating[`${r}-${c}`];
+                    const student = students.find(s => s.id === sId);
+                    html += `
+                        <div onclick="handleDeskClick(${r}, ${c})" 
+                             class="relative w-24 aspect-square rounded-xl border-2 flex flex-col items-center justify-center p-2 transition-all cursor-pointer text-center ${sId ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-dashed border-slate-200'} ${margin}">
+                            ${!sId ? `<i class="fas fa-plus text-slate-200"></i>` : `
+                                <div class="w-full h-full flex flex-col justify-center gap-1">
+                                    <span class="text-[10px] font-bold text-slate-800 leading-tight line-clamp-2">${student.name}</span>
+                                    ${currentView === 'live' ? `
+                                        <div class="flex gap-1 justify-center mt-1">
+                                            <button onclick="event.stopPropagation(); toggleStatus('${sId}', 'att')" class="p-1.5 rounded-md ${attendance[sId] ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}">
+                                                <i class="fas fa-user-check text-[10px]"></i>
+                                            </button>
+                                            <button onclick="event.stopPropagation(); toggleStatus('${sId}', 'sub')" class="p-1.5 rounded-md ${submissions[sId] ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-400'}">
+                                                <i class="fas fa-file-upload text-[10px]"></i>
+                                            </button>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `}
+                        </div>
+                    `;
+                }
+                html += `</div>`;
+            }
+            grid.innerHTML = html;
+        }
+
+        function handleDeskClick(r, c) {
+            if (currentView !== 'setup') return;
+            const key = `${r}-${c}`;
+            if (seating[key]) {
+                delete seating[key];
+            } else {
+                const assigned = Object.values(seating);
+                const next = students.find(s => !assigned.includes(s.id));
+                if (next) seating[key] = next.id;
+            }
+            renderGrid();
+        }
+
+        function toggleStatus(id, type) {
+            if (type === 'att') attendance[id] = !attendance[id];
+            else submissions[id] = !submissions[id];
+            renderGrid();
+        }
+
+        function renderBulkControls() {
+            const container = document.getElementById('bulk-controls');
+            let html = '';
+            for (let c = 0; c < 8; c++) {
+                html += `
+                    <div class="flex flex-col gap-1 items-center w-24 ${getColMargin(c)}">
+                        <button onclick="bulkCol(${c}, 'att')" class="text-[9px] bg-blue-50 text-blue-600 px-1 py-1 rounded w-full border border-blue-100 font-bold uppercase">Col ${c+1} Att.</button>
+                        <button onclick="bulkCol(${c}, 'sub')" class="text-[9px] bg-green-50 text-green-600 px-1 py-1 rounded w-full border border-green-100 font-bold uppercase">Col ${c+1} Sub.</button>
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+
+        function bulkCol(c, type) {
+            let anyOff = false;
+            for (let r = 0; r < 6; r++) {
+                const id = seating[`${r}-${c}`];
+                if (id && !(type === 'att' ? attendance[id] : submissions[id])) anyOff = true;
+            }
+            for (let r = 0; r < 6; r++) {
+                const id = seating[`${r}-${c}`];
+                if (id) {
+                    if (type === 'att') attendance[id] = anyOff;
+                    else submissions[id] = anyOff;
+                }
+            }
+            renderGrid();
+        }
+
+        async function finalizeSession() {
+            const btn = document.getElementById('save-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+            const ts = new Date().toLocaleString();
+            const data = students.map(s => ({
+                date: ts, name: s.name, 
+                present: attendance[s.id] ? 'Yes' : 'No', 
+                submitted: submissions[s.id] ? 'Yes' : 'No'
+            }));
+
+            sessionRecords = [...data, ...sessionRecords];
+
+            if (GOOGLE_SCRIPT_URL) {
+                try {
+                    await fetch(GOOGLE_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors', // Standard for Google Web Apps
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                } catch (e) { console.error(e); }
+            }
+
+            attendance = {}; submissions = {};
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save"></i> Save Session';
+            setView('records');
+        }
+
+        function renderRecordsTable() {
+            const body = document.getElementById('records-body');
+            if (!sessionRecords.length) {
+                body.innerHTML = `<tr><td colspan="4" class="px-6 py-12 text-center text-slate-400">No data saved yet.</td></tr>`;
+                return;
+            }
+            body.innerHTML = sessionRecords.map(r => `
+                <tr class="hover:bg-slate-50">
+                    <td class="px-6 py-4 text-xs text-slate-500">${r.date}</td>
+                    <td class="px-6 py-4 text-sm font-semibold">${r.name}</td>
+                    <td class="px-6 py-4 text-center">
+                        <span class="px-2 py-1 rounded-full text-[10px] font-bold ${r.present === 'Yes' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-400'}">${r.present}</span>
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                        <span class="px-2 py-1 rounded-full text-[10px] font-bold ${r.submitted === 'Yes' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}">${r.submitted}</span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function downloadCSV() {
+            if (!sessionRecords.length) return;
+            const csv = "Date,Name,Present,Submitted\n" + sessionRecords.map(r => `"${r.date}","${r.name}","${r.present}","${r.submitted}"`).join("\n");
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Attendance_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
