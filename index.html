@@ -34,10 +34,10 @@
 
             <nav class="space-y-2 flex-1">
                 <button onclick="setView('setup')" id="btn-setup" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-600 text-white shadow-lg text-left">
-                    <i class="fas fa-cog w-5"></i> Setup Layout
+                    <i class="fas fa-cog w-5"></i> Classroom Layout
                 </button>
                 <button onclick="setView('live')" id="btn-live" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 text-left">
-                    <i class="fas fa-check-double w-5"></i> Live Session
+                    <i class="fas fa-check-double w-5"></i> Classroom Activity
                 </button>
                 <button onclick="setView('records')" id="btn-records" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 text-left">
                     <i class="fas fa-table w-5"></i> Records
@@ -47,9 +47,15 @@
             <div class="pt-6 border-t border-slate-800">
                 <p class="text-xs text-slate-500 uppercase font-bold mb-4 tracking-wider">Student Roster</p>
                 <div id="student-list" class="max-h-48 overflow-y-auto space-y-2 mb-4 pr-2"></div>
-                <button onclick="promptAddStudent()" class="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-slate-700 rounded-lg text-slate-400 hover:text-white text-xs transition-colors">
-                    <i class="fas fa-user-plus"></i> Add Student
-                </button>
+                
+                <div class="space-y-2">
+                    <button onclick="promptAddStudent()" class="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-slate-700 rounded-lg text-slate-400 hover:text-white text-xs transition-colors">
+                        <i class="fas fa-user-plus"></i> Add One
+                    </button>
+                    <button onclick="toggleBulkModal(true)" class="w-full flex items-center justify-center gap-2 py-2 bg-slate-800 rounded-lg text-slate-300 hover:text-white text-xs transition-colors">
+                        <i class="fas fa-users"></i> Bulk Add Names
+                    </button>
+                </div>
             </div>
         </aside>
 
@@ -57,7 +63,7 @@
         <main class="flex-1 flex flex-col p-8 overflow-y-auto">
             <header class="flex justify-between items-center mb-6">
                 <div>
-                    <h2 id="view-title" class="text-2xl font-extrabold tracking-tight">Seating Chart</h2>
+                    <h2 id="view-title" class="text-2xl font-extrabold tracking-tight">Classroom Layout</h2>
                     <p id="view-desc" class="text-slate-500 text-sm">Assign students to desks below.</p>
                 </div>
                 <div id="header-actions" class="hidden">
@@ -105,6 +111,24 @@
         </main>
     </div>
 
+    <!-- Bulk Entry Modal -->
+    <div id="bulk-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 class="font-bold text-lg">Bulk Student Entry</h3>
+                <button onclick="toggleBulkModal(false)" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-6">
+                <p class="text-sm text-slate-500 mb-4">Paste student names below (one name per line).</p>
+                <textarea id="bulk-input" class="w-full h-64 p-4 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm font-mono" placeholder="John Doe&#10;Jane Smith&#10;Alex Johnson..."></textarea>
+            </div>
+            <div class="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                <button onclick="toggleBulkModal(false)" class="px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
+                <button onclick="processBulkStudents()" class="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-md hover:bg-blue-700 transition-colors">Import Students</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         /**
          * CONFIGURATION
@@ -115,16 +139,37 @@
 
         // State Management
         let currentView = 'setup';
-        let students = [
-            { id: '1', name: 'Student 1' },
-            { id: '2', name: 'Student 2' }
-        ];
+        let students = [];
         let seating = {}; 
         let attendance = {}; 
         let submissions = {}; 
         let sessionRecords = [];
 
+        // Storage Functions
+        function saveState() {
+            const state = {
+                students: students,
+                seating: seating,
+                sessionRecords: sessionRecords
+            };
+            localStorage.setItem('classManagerData', JSON.stringify(state));
+        }
+
+        function loadState() {
+            const saved = localStorage.getItem('classManagerData');
+            if (saved) {
+                const data = JSON.parse(saved);
+                students = data.students || [];
+                seating = data.seating || {};
+                sessionRecords = data.sessionRecords || [];
+            } else {
+                // Default fallback if no storage
+                students = [{ id: '1', name: 'Sample Student 1' }];
+            }
+        }
+
         function init() {
+            loadState();
             renderStudentList();
             renderGrid();
             renderBulkControls();
@@ -145,22 +190,44 @@
                     "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 text-left";
             });
 
-            document.getElementById('view-title').innerText = view === 'setup' ? 'Seating Chart' : view === 'live' ? 'Attendance' : 'History';
+            document.getElementById('view-title').innerText = view === 'setup' ? 'Classroom Layout' : view === 'live' ? 'Classroom Activity' : 'History';
             renderGrid();
             if (view === 'records') renderRecordsTable();
+        }
+
+        function toggleBulkModal(show) {
+            document.getElementById('bulk-modal').classList.toggle('hidden', !show);
+            if(show) document.getElementById('bulk-input').value = "";
+        }
+
+        function processBulkStudents() {
+            const input = document.getElementById('bulk-input').value;
+            const names = input.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+            
+            names.forEach(name => {
+                students.push({ id: Date.now().toString() + Math.random(), name: name });
+            });
+
+            saveState();
+            renderStudentList();
+            toggleBulkModal(false);
+            renderGrid();
         }
 
         function promptAddStudent() {
             const name = window.prompt("Enter student name:");
             if (name && name.trim()) {
                 students.push({ id: Date.now().toString(), name: name.trim() });
+                saveState();
                 renderStudentList();
+                renderGrid();
             }
         }
 
         function removeStudent(id) {
             students = students.filter(s => s.id !== id);
             for (let k in seating) if (seating[k] === id) delete seating[k];
+            saveState();
             renderStudentList();
             renderGrid();
         }
@@ -230,6 +297,7 @@
                 const next = students.find(s => !assigned.includes(s.id));
                 if (next) seating[key] = next.id;
             }
+            saveState();
             renderGrid();
         }
 
@@ -282,12 +350,13 @@
             }));
 
             sessionRecords = [...data, ...sessionRecords];
+            saveState();
 
             if (GOOGLE_SCRIPT_URL) {
                 try {
                     await fetch(GOOGLE_SCRIPT_URL, {
                         method: 'POST',
-                        mode: 'no-cors', // Standard for Google Web Apps
+                        mode: 'no-cors',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(data)
                     });
