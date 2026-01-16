@@ -281,6 +281,20 @@
             } catch (e) { container.innerHTML = 'Error loading history.'; }
         };
 
+        window.toggleSessionDetails = (sessId) => {
+            const el = document.getElementById(`details-${sessId}`);
+            const btnText = document.getElementById(`btn-text-${sessId}`);
+            const isExpanded = el.classList.contains('details-expanded');
+
+            if (isExpanded) {
+                el.classList.remove('details-expanded');
+                btnText.innerText = 'Show Details';
+            } else {
+                el.classList.add('details-expanded');
+                btnText.innerText = 'Hide Details';
+            }
+        };
+        
         // --- UI HELPERS ---
         window.addStudent = () => {
             const name = prompt("Student Name:");
