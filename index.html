@@ -242,7 +242,8 @@
             container.innerHTML = '<div class="text-center py-8 text-slate-400"><i class="fas fa-circle-notch fa-spin"></i> Loading records...</div>';
             
             try {
-                const q = query(collection(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions`), orderBy("timestamp", "desc"));
+                // We use a simple query to avoid Index errors
+                const q = query(collection(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions`));
                 const snapshot = await getDocs(q);
                 
                 if (snapshot.empty) {
@@ -250,35 +251,67 @@
                     return;
                 }
 
+                // Sort in memory to avoid Firebase Index requirements
+                const sessions = [];
+                snapshot.forEach(doc => sessions.push({ id: doc.id, ...doc.data() }));
+                sessions.sort((a, b) => b.timestamp - a.timestamp);
+
                 let html = '<div class="space-y-4">';
-                snapshot.forEach(doc => {
-                    const sess = doc.data();
+                sessions.forEach(sess => {
+                    const sessId = sess.id; 
                     const presentCount = sess.records.filter(r => r.present).length;
                     const total = sess.records.length;
                     
                     html += `
-                        <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-sm transition-all">
-                            <div class="flex justify-between items-center mb-2">
-                                <h4 class="font-bold text-slate-700">${sess.date}</h4>
-                                <span class="text-xs font-mono bg-slate-100 px-2 py-1 rounded text-slate-600">Attendance: ${presentCount}/${total}</span>
+                        <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm mb-4">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h4 class="font-bold text-slate-700">${sess.date}</h4>
+                                    <p class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Attendance: ${presentCount}/${total}</p>
+                                </div>
+                                <button onclick="toggleSessionDetails('${sessId}')" class="text-blue-600 text-xs font-bold hover:bg-blue-50 px-3 py-2 rounded-lg transition-all flex items-center">
+                                    <span id="btn-text-${sessId}">Show Details</span> 
+                                    <i id="icon-${sessId}" class="fas fa-chevron-down ml-2 transition-transform duration-300"></i>
+                                </button>
                             </div>
-                            <div class="text-xs text-slate-500 max-h-0 overflow-hidden transition-all group hover:max-h-96 cursor-pointer">
-                                <div class="mt-2 pt-2 border-t border-slate-100 grid grid-cols-2 gap-2">
+                            
+                            <div id="details-${sessId}" class="text-xs text-slate-500 max-h-0 overflow-hidden opacity-0 transition-all duration-500 ease-in-out">
+                                <div class="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-2">
                                     ${sess.records.map(r => `
-                                        <div class="flex items-center gap-2">
+                                        <div class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
                                             <div class="w-2 h-2 rounded-full ${r.present ? 'bg-green-400' : 'bg-red-400'}"></div>
-                                            <span class="${!r.present ? 'text-red-400' : ''}">${r.name}</span>
+                                            <span class="truncate ${!r.present ? 'text-red-500 font-medium' : 'text-slate-600'}">${r.name}</span>
                                         </div>
                                     `).join('')}
                                 </div>
                             </div>
-                            <div class="text-center text-xs text-slate-300 mt-1"><i class="fas fa-chevron-down"></i> Hover details</div>
                         </div>
                     `;
                 });
                 html += '</div>';
                 container.innerHTML = html;
-            } catch (e) { container.innerHTML = 'Error loading history.'; }
+            } catch (e) { 
+                console.error(e);
+                container.innerHTML = '<p class="text-red-500">Error loading history.</p>'; 
+            }
+        };
+
+        window.toggleSessionDetails = (sessId) => {
+            const el = document.getElementById(`details-${sessId}`);
+            const btnText = document.getElementById(`btn-text-${sessId}`);
+            const icon = document.getElementById(`icon-${sessId}`);
+            if (!el) return;
+
+            const isExpanded = el.classList.contains('details-expanded');
+            if (isExpanded) {
+                el.classList.remove('details-expanded');
+                btnText.innerText = 'Show Details';
+                if(icon) icon.style.transform = 'rotate(0deg)';
+            } else {
+                el.classList.add('details-expanded');
+                btnText.innerText = 'Hide Details';
+                if(icon) icon.style.transform = 'rotate(180deg)';
+            }
         };
 
         window.toggleSessionDetails = (sessId) => {
