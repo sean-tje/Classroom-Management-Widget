@@ -248,26 +248,12 @@
             const isExpanded = el.classList.contains('details-expanded');
             if (isExpanded) {
                 el.classList.remove('details-expanded');
-                btnText.innerText = 'Show Details';
+                if(btnText) btnText.innerText = 'Show Details';
                 if(icon) icon.style.transform = 'rotate(0deg)';
             } else {
                 el.classList.add('details-expanded');
-                btnText.innerText = 'Hide Details';
+                if(btnText) btnText.innerText = 'Hide Details';
                 if(icon) icon.style.transform = 'rotate(180deg)';
-            }
-        };
-
-        window.toggleSessionDetails = (sessId) => {
-            const el = document.getElementById(`details-${sessId}`);
-            const btnText = document.getElementById(`btn-text-${sessId}`);
-            const isExpanded = el.classList.contains('details-expanded');
-
-            if (isExpanded) {
-                el.classList.remove('details-expanded');
-                btnText.innerText = 'Show Details';
-            } else {
-                el.classList.add('details-expanded');
-                btnText.innerText = 'Hide Details';
             }
         };
         
