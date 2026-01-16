@@ -3,278 +3,413 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Classroom Manager</title>
+    <title>Classroom Manager Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        .desk-gap { margin-right: 2.5rem; }
-        .desk-standard { margin-right: 0.25rem; }
-        .line-clamp-2 {
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-    </style>
-</head>
-<body class="bg-slate-50 font-sans text-slate-900">
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, query, orderBy, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-    <div class="flex h-screen overflow-hidden">
-        <!-- Sidebar -->
-        <aside class="w-64 bg-slate-900 text-white flex flex-col p-6 border-r border-slate-700">
-            <div class="flex items-center gap-3 mb-8">
-                <div class="bg-blue-600 p-2 rounded-lg">
-                    <i class="fas fa-chalkboard-user"></i>
-                </div>
-                <h1 class="font-bold text-lg tracking-tight">ClassManager</h1>
-            </div>
+        // ==========================================
+        // PASTE YOUR FIREBASE CONFIGURATION HERE
+        // ==========================================
+        const firebaseConfig = {
+            // apiKey: "AIzaSyD...",
+            // authDomain: "your-app.firebaseapp.com",
+            // projectId: "your-app",
+            // ...
+        };
+        // ==========================================
 
-            <nav class="space-y-2 flex-1">
-                <button onclick="setView('setup')" id="btn-setup" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-600 text-white shadow-lg text-left">
-                    <i class="fas fa-cog w-5"></i> Classroom Layout
-                </button>
-                <button onclick="setView('live')" id="btn-live" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 text-left">
-                    <i class="fas fa-check-double w-5"></i> Classroom Activity
-                </button>
-                <button onclick="setView('records')" id="btn-records" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 text-left">
-                    <i class="fas fa-table w-5"></i> Records
-                </button>
-            </nav>
+        // Global State
+        let app, auth, db, provider;
+        let currentUser = null;
+        let currentClassId = null;
+        let classData = null; 
+        let attendanceBuffer = {};
+        let submissionBuffer = {};
 
-            <div class="pt-6 border-t border-slate-800">
-                <p class="text-xs text-slate-500 uppercase font-bold mb-4 tracking-wider">Student Roster</p>
-                <div id="student-list" class="max-h-48 overflow-y-auto space-y-2 mb-4 pr-2"></div>
-                
-                <div class="space-y-2">
-                    <button onclick="promptAddStudent()" class="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-slate-700 rounded-lg text-slate-400 hover:text-white text-xs transition-colors">
-                        <i class="fas fa-user-plus"></i> Add One
-                    </button>
-                    <button onclick="toggleBulkModal(true)" class="w-full flex items-center justify-center gap-2 py-2 bg-slate-800 rounded-lg text-slate-300 hover:text-white text-xs transition-colors">
-                        <i class="fas fa-users"></i> Bulk Add Names
-                    </button>
-                </div>
-            </div>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="flex-1 flex flex-col p-8 overflow-y-auto">
-            <header class="flex justify-between items-center mb-6">
-                <div>
-                    <h2 id="view-title" class="text-2xl font-extrabold tracking-tight">Classroom Layout</h2>
-                    <p id="view-desc" class="text-slate-500 text-sm">Assign students to desks below.</p>
-                </div>
-                <div id="header-actions" class="hidden">
-                    <button onclick="finalizeSession()" id="save-btn" class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg transition-all active:scale-95">
-                        <i class="fas fa-save"></i> Save Session
-                    </button>
-                </div>
-                <div id="record-actions" class="hidden">
-                    <button onclick="downloadCSV()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg transition-all">
-                        <i class="fas fa-download"></i> Export CSV
-                    </button>
-                </div>
-            </header>
-
-            <div id="classroom-container" class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 flex flex-col h-full overflow-hidden">
-                <!-- Column-based Selection (Live View Only) -->
-                <div id="bulk-controls" class="hidden flex gap-0 mb-6 border-b pb-6 justify-center"></div>
-
-                <div class="flex-1 overflow-y-auto pr-2">
-                    <div id="seating-grid" class="flex flex-col gap-3 items-center mb-8"></div>
-
-                    <!-- Whiteboard (Opposite end from Row 0) -->
-                    <div class="flex justify-center mt-8 pb-4">
-                        <div class="w-2/3 h-14 bg-slate-800 rounded-t-2xl flex items-center justify-center text-slate-300 gap-3 border-b-4 border-slate-600 shadow-md">
-                            <i class="fas fa-desktop"></i>
-                            <span class="uppercase tracking-[0.4em] text-[10px] font-black">WHITEBOARD</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="records-container" class="hidden bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                <table class="w-full text-left">
-                    <thead>
-                        <tr class="bg-slate-50 border-b border-slate-200">
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Timestamp</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Student</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-center">Present</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-center">Submitted</th>
-                        </tr>
-                    </thead>
-                    <tbody id="records-body" class="divide-y divide-slate-100"></tbody>
-                </table>
-            </div>
-        </main>
-    </div>
-
-    <!-- Bulk Entry Modal -->
-    <div id="bulk-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-            <div class="p-6 border-b border-slate-100 flex justify-between items-center">
-                <h3 class="font-bold text-lg">Bulk Student Entry</h3>
-                <button onclick="toggleBulkModal(false)" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="p-6">
-                <p class="text-sm text-slate-500 mb-4">Paste student names below (one name per line).</p>
-                <textarea id="bulk-input" class="w-full h-64 p-4 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm font-mono" placeholder="John Doe&#10;Jane Smith&#10;Alex Johnson..."></textarea>
-            </div>
-            <div class="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-                <button onclick="toggleBulkModal(false)" class="px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
-                <button onclick="processBulkStudents()" class="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-md hover:bg-blue-700 transition-colors">Import Students</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        /**
-         * CONFIGURATION
-         * 1. Deploy your Google Apps Script as a Web App (Access: Anyone).
-         * 2. Paste the URL between the quotes below.
-         */
-        const GOOGLE_SCRIPT_URL = ''; 
-
-        // State Management
-        let currentView = 'setup';
-        let students = [];
-        let seating = {}; 
-        let attendance = {}; 
-        let submissions = {}; 
-        let sessionRecords = [];
-
-        // Storage Functions
-        function saveState() {
-            const state = {
-                students: students,
-                seating: seating,
-                sessionRecords: sessionRecords
-            };
-            localStorage.setItem('classManagerData', JSON.stringify(state));
-        }
-
-        function loadState() {
-            const saved = localStorage.getItem('classManagerData');
-            if (saved) {
-                const data = JSON.parse(saved);
-                students = data.students || [];
-                seating = data.seating || {};
-                sessionRecords = data.sessionRecords || [];
-            } else {
-                // Default fallback if no storage
-                students = [{ id: '1', name: 'Sample Student 1' }];
-            }
-        }
-
-        function init() {
-            loadState();
-            renderStudentList();
-            renderGrid();
-            renderBulkControls();
-        }
-
-        function setView(view) {
-            currentView = view;
-            document.getElementById('classroom-container').classList.toggle('hidden', view === 'records');
-            document.getElementById('records-container').classList.toggle('hidden', view !== 'records');
-            document.getElementById('bulk-controls').classList.toggle('hidden', view !== 'live');
-            document.getElementById('header-actions').classList.toggle('hidden', view !== 'live');
-            document.getElementById('record-actions').classList.toggle('hidden', view !== 'records');
-
-            ['setup', 'live', 'records'].forEach(v => {
-                const btn = document.getElementById(`btn-${v}`);
-                btn.className = v === view ? 
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-600 text-white shadow-lg text-left" : 
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 text-left";
-            });
-
-            document.getElementById('view-title').innerText = view === 'setup' ? 'Classroom Layout' : view === 'live' ? 'Classroom Activity' : 'History';
-            renderGrid();
-            if (view === 'records') renderRecordsTable();
-        }
-
-        function toggleBulkModal(show) {
-            document.getElementById('bulk-modal').classList.toggle('hidden', !show);
-            if(show) document.getElementById('bulk-input').value = "";
-        }
-
-        function processBulkStudents() {
-            const input = document.getElementById('bulk-input').value;
-            const names = input.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+        // Initialize Firebase safely
+        function initFirebase() {
+            // Check if config is empty or just has comments
+            const hasKeys = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey;
             
-            names.forEach(name => {
-                students.push({ id: Date.now().toString() + Math.random(), name: name });
-            });
+            if (!hasKeys) {
+                console.warn("Firebase config is missing. Showing setup screen.");
+                document.getElementById('screen-setup').classList.remove('hidden');
+                document.getElementById('screen-login').classList.add('hidden');
+                return;
+            }
 
-            saveState();
-            renderStudentList();
-            toggleBulkModal(false);
-            renderGrid();
-        }
-
-        function promptAddStudent() {
-            const name = window.prompt("Enter student name:");
-            if (name && name.trim()) {
-                students.push({ id: Date.now().toString(), name: name.trim() });
-                saveState();
-                renderStudentList();
-                renderGrid();
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                provider = new GoogleAuthProvider();
+                
+                // Auth Listener
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        currentUser = user;
+                        if(document.getElementById('user-name')) document.getElementById('user-name').innerText = user.displayName;
+                        if(document.getElementById('user-avatar')) document.getElementById('user-avatar').src = user.photoURL;
+                        window.loadDashboard();
+                    } else {
+                        currentUser = null;
+                        showScreen('login');
+                    }
+                });
+            } catch (e) {
+                console.error("Firebase initialization failed:", e);
+                alert("Error initializing Firebase. Check your configuration keys.");
             }
         }
 
-        function removeStudent(id) {
-            students = students.filter(s => s.id !== id);
-            for (let k in seating) if (seating[k] === id) delete seating[k];
-            saveState();
-            renderStudentList();
-            renderGrid();
-        }
+        // --- AUTH LOGIC ---
+        window.login = async () => {
+            if (!auth) return alert("Firebase not connected. Please edit the index.html file to add your API keys.");
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (error) {
+                alert("Login Failed: " + error.message);
+            }
+        };
 
-        function renderStudentList() {
-            const list = document.getElementById('student-list');
-            list.innerHTML = students.map(s => `
-                <div class="text-sm flex justify-between items-center group py-1">
-                    <span class="truncate pr-2">${s.name}</span>
-                    <button onclick="removeStudent('${s.id}')" class="opacity-0 group-hover:opacity-100 text-red-400">
-                        <i class="fas fa-trash-alt text-[10px]"></i>
-                    </button>
+        window.logout = () => signOut(auth);
+
+        // --- DATA LOGIC ---
+        window.loadDashboard = async () => {
+            if (!currentUser) return;
+            showScreen('dashboard');
+            const list = document.getElementById('class-grid');
+            list.innerHTML = '<div class="col-span-full text-center text-gray-400 py-10"><i class="fas fa-circle-notch fa-spin"></i> Loading classes...</div>';
+            
+            try {
+                const q = query(collection(db, `users/${currentUser.uid}/classes`), orderBy("name"));
+                const snapshot = await getDocs(q);
+                
+                if (snapshot.empty) {
+                    list.innerHTML = `
+                        <div class="col-span-full text-center py-10">
+                            <div class="bg-slate-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4 text-slate-400">
+                                <i class="fas fa-folder-open text-2xl"></i>
+                            </div>
+                            <h3 class="text-slate-600 font-medium">No classes yet</h3>
+                            <p class="text-slate-400 text-sm">Create your first class to get started.</p>
+                        </div>`;
+                } else {
+                    list.innerHTML = '';
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        list.innerHTML += `
+                            <div onclick="enterClass('${doc.id}')" class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-blue-300 cursor-pointer transition-all group relative">
+                                <h3 class="font-bold text-lg text-slate-800 group-hover:text-blue-600 truncate">${data.name}</h3>
+                                <p class="text-xs text-slate-400 mt-1">${data.students ? data.students.length : 0} Students</p>
+                                <div class="absolute top-6 right-6 text-slate-300 group-hover:text-blue-500">
+                                    <i class="fas fa-chevron-right"></i>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+                list.innerHTML = '<p class="text-red-500">Error loading classes.</p>';
+            }
+        };
+
+        window.createClass = async () => {
+            const name = prompt("Enter Class Name (e.g., '7A Math'):");
+            if (!name) return;
+            try {
+                await addDoc(collection(db, `users/${currentUser.uid}/classes`), {
+                    name: name,
+                    students: [],
+                    layout: {},
+                    createdAt: new Date()
+                });
+                loadDashboard();
+            } catch (e) { alert("Error creating class: " + e.message); }
+        };
+
+        window.enterClass = async (classId) => {
+            currentClassId = classId;
+            showScreen('app-layout');
+            document.getElementById('loading-overlay').classList.remove('hidden');
+            
+            try {
+                const docRef = doc(db, `users/${currentUser.uid}/classes/${classId}`);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    classData = docSnap.data();
+                    // Initialize empty buffers
+                    attendanceBuffer = {};
+                    submissionBuffer = {};
+                    
+                    document.getElementById('class-name-display').innerText = classData.name;
+                    updateStudentListUI();
+                    renderGrid();
+                    switchTab('layout'); // Default to layout view
+                }
+            } catch (e) { console.error(e); }
+            document.getElementById('loading-overlay').classList.add('hidden');
+        };
+
+        window.saveClassData = async () => {
+            // Saves Students & Layout changes
+            if (!currentClassId) return;
+            const btn = document.getElementById('btn-save-layout');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            
+            try {
+                await updateDoc(doc(db, `users/${currentUser.uid}/classes/${currentClassId}`), {
+                    students: classData.students,
+                    layout: classData.layout
+                });
+                btn.innerHTML = '<i class="fas fa-check"></i> Saved';
+                setTimeout(() => btn.innerHTML = originalText, 2000);
+            } catch (e) { 
+                alert("Save failed"); 
+                btn.innerHTML = originalText;
+            }
+        };
+
+        window.saveSession = async () => {
+            // Saves Activity (Attendance)
+            if (!currentClassId) return;
+            const btn = document.getElementById('btn-save-session');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+            const timestamp = new Date();
+            const sessionData = {
+                date: timestamp.toLocaleString(),
+                timestamp: timestamp,
+                records: classData.students.map(s => ({
+                    id: s.id,
+                    name: s.name,
+                    present: attendanceBuffer[s.id] || false,
+                    submitted: submissionBuffer[s.id] || false
+                }))
+            };
+
+            try {
+                // Add to subcollection 'sessions'
+                await addDoc(collection(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions`), sessionData);
+                
+                // Reset buffers
+                attendanceBuffer = {};
+                submissionBuffer = {};
+                renderGrid();
+                
+                btn.innerHTML = '<i class="fas fa-check"></i> Saved';
+                setTimeout(() => {
+                    btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Save Session';
+                    switchTab('history'); // Go to history to show it saved
+                }, 1000);
+            } catch (e) {
+                alert("Error saving session: " + e.message);
+                btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Save Session';
+            }
+        };
+
+        window.loadHistory = async () => {
+            const container = document.getElementById('history-list');
+            container.innerHTML = '<div class="text-center py-8 text-slate-400"><i class="fas fa-circle-notch fa-spin"></i> Loading records...</div>';
+            
+            try {
+                const q = query(collection(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions`), orderBy("timestamp", "desc"));
+                const snapshot = await getDocs(q);
+                
+                if (snapshot.empty) {
+                    container.innerHTML = '<div class="text-center py-8 text-slate-400">No sessions recorded yet.</div>';
+                    return;
+                }
+
+                let html = '<div class="space-y-4">';
+                snapshot.forEach(doc => {
+                    const sess = doc.data();
+                    const presentCount = sess.records.filter(r => r.present).length;
+                    const total = sess.records.length;
+                    
+                    html += `
+                        <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-sm transition-all">
+                            <div class="flex justify-between items-center mb-2">
+                                <h4 class="font-bold text-slate-700">${sess.date}</h4>
+                                <span class="text-xs font-mono bg-slate-100 px-2 py-1 rounded text-slate-600">Attendance: ${presentCount}/${total}</span>
+                            </div>
+                            <div class="text-xs text-slate-500 max-h-0 overflow-hidden transition-all group hover:max-h-96 cursor-pointer">
+                                <div class="mt-2 pt-2 border-t border-slate-100 grid grid-cols-2 gap-2">
+                                    ${sess.records.map(r => `
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-2 h-2 rounded-full ${r.present ? 'bg-green-400' : 'bg-red-400'}"></div>
+                                            <span class="${!r.present ? 'text-red-400' : ''}">${r.name}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="text-center text-xs text-slate-300 mt-1"><i class="fas fa-chevron-down"></i> Hover details</div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                container.innerHTML = html;
+            } catch (e) { container.innerHTML = 'Error loading history.'; }
+        };
+
+        // --- UI HELPERS ---
+        window.addStudent = () => {
+            const name = prompt("Student Name:");
+            if (name) {
+                classData.students.push({ id: Date.now().toString(), name: name });
+                updateStudentListUI();
+                renderGrid(); // To show new student in unseated pool logic if needed
+            }
+        };
+
+        window.openBulkModal = () => document.getElementById('bulk-modal').classList.remove('hidden');
+        window.closeBulkModal = () => document.getElementById('bulk-modal').classList.add('hidden');
+        
+        window.processBulk = () => {
+            const txt = document.getElementById('bulk-input').value;
+            const names = txt.split('\n').map(n => n.trim()).filter(n => n);
+            names.forEach(n => {
+                classData.students.push({ id: Date.now().toString() + Math.random().toString().substr(2, 5), name: n });
+            });
+            updateStudentListUI();
+            closeBulkModal();
+            document.getElementById('bulk-input').value = '';
+        };
+
+        window.deleteStudent = (id) => {
+            if(!confirm("Remove student?")) return;
+            classData.students = classData.students.filter(s => s.id !== id);
+            // Remove from layout
+            for(let key in classData.layout) {
+                if(classData.layout[key] === id) delete classData.layout[key];
+            }
+            updateStudentListUI();
+            renderGrid();
+        };
+
+        function updateStudentListUI() {
+            const div = document.getElementById('roster-list');
+            div.innerHTML = classData.students.map(s => `
+                <div class="flex justify-between items-center text-sm py-1 group">
+                    <span>${s.name}</span>
+                    <button onclick="deleteStudent('${s.id}')" class="text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i class="fas fa-trash"></i></button>
                 </div>
             `).join('');
+            document.getElementById('student-count').innerText = `${classData.students.length} Students`;
         }
 
-        // Layout Helpers
-        const isTable = (r, c) => r === 0 ? (c >= 2 && c <= 5) : true;
-        const getColMargin = (c) => (c === 1 || c === 3 || c === 5) ? 'desk-gap' : 'desk-standard';
+        // --- GRID LOGIC ---
+        // 5 rows of 8 (pairs), plus 1 back row of 4
+        const ROWS = 6; 
+        const COLS = 8;
+        
+        window.handleDeskClick = (r, c) => {
+            const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
+            if (activeTab !== 'layout') return;
 
-        function renderGrid() {
-            const grid = document.getElementById('seating-grid');
+            const key = `${r}-${c}`;
+            if (classData.layout[key]) {
+                delete classData.layout[key];
+            } else {
+                // Find next unseated student
+                const seatedIds = Object.values(classData.layout);
+                const next = classData.students.find(s => !seatedIds.includes(s.id));
+                if (next) classData.layout[key] = next.id;
+            }
+            renderGrid();
+        };
+
+        window.toggleStatus = (id, type) => {
+            if (type === 'att') attendanceBuffer[id] = !attendanceBuffer[id];
+            if (type === 'sub') submissionBuffer[id] = !submissionBuffer[id];
+            renderGrid();
+        };
+
+        window.bulkToggle = (c, type) => {
+            // Find all students in this column
+            let anyOff = false;
+            for(let r=0; r<ROWS; r++) {
+                const sId = classData.layout[`${r}-${c}`];
+                if(sId) {
+                    const val = type === 'att' ? attendanceBuffer[sId] : submissionBuffer[sId];
+                    if(!val) anyOff = true;
+                }
+            }
+            // Apply
+            for(let r=0; r<ROWS; r++) {
+                const sId = classData.layout[`${r}-${c}`];
+                if(sId) {
+                    if(type === 'att') attendanceBuffer[sId] = anyOff;
+                    if(type === 'sub') submissionBuffer[sId] = anyOff;
+                }
+            }
+            renderGrid();
+        };
+
+        const isTable = (r, c) => r === 0 ? (c >= 2 && c <= 5) : true;
+        const getMargin = (c) => (c === 1 || c === 3 || c === 5) ? 'mr-10' : 'mr-1';
+
+        window.renderGrid = () => {
+            const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab || 'layout';
+            const grid = document.getElementById('grid-container');
+            const bulkHeader = document.getElementById('bulk-header');
+            
+            // Show/Hide Bulk Controls
+            if (activeTab === 'activity') {
+                bulkHeader.classList.remove('hidden');
+                let bHtml = '';
+                for(let c=0; c<COLS; c++) {
+                    bHtml += `
+                    <div class="flex flex-col gap-1 w-24 items-center ${getMargin(c)}">
+                        <button onclick="bulkToggle(${c}, 'att')" class="w-full text-[9px] font-bold bg-blue-50 text-blue-600 rounded py-1 hover:bg-blue-100">ATT</button>
+                        <button onclick="bulkToggle(${c}, 'sub')" class="w-full text-[9px] font-bold bg-green-50 text-green-600 rounded py-1 hover:bg-green-100">SUB</button>
+                    </div>`;
+                }
+                bulkHeader.innerHTML = bHtml;
+            } else {
+                bulkHeader.classList.add('hidden');
+            }
+
+            // Render Desks
             let html = '';
-            for (let r = 0; r < 6; r++) {
-                html += `<div class="flex">`;
-                for (let c = 0; c < 8; c++) {
-                    const margin = getColMargin(c);
+            for(let r=0; r<ROWS; r++) {
+                html += `<div class="flex mb-2 justify-center">`;
+                for(let c=0; c<COLS; c++) {
+                    const margin = getMargin(c);
                     if (!isTable(r, c)) {
-                        html += `<div class="w-24 aspect-square ${margin}"></div>`;
+                        html += `<div class="w-24 h-24 ${margin}"></div>`; 
                         continue;
                     }
-                    const sId = seating[`${r}-${c}`];
-                    const student = students.find(s => s.id === sId);
+
+                    const sId = classData.layout[`${r}-${c}`];
+                    const student = sId ? classData.students.find(s => s.id === sId) : null;
+                    const name = student ? student.name : '';
+                    
+                    // State Styling
+                    let borderClass = sId ? 'border-slate-300 bg-white shadow-sm' : 'border-slate-200 border-dashed bg-slate-50';
+                    if (!sId) borderClass += ' hover:border-blue-400 cursor-pointer';
+
+                    // Activity Mode Styling
+                    const isPres = attendanceBuffer[sId];
+                    const isSub = submissionBuffer[sId];
+                    
                     html += `
-                        <div onclick="handleDeskClick(${r}, ${c})" 
-                             class="relative w-24 aspect-square rounded-xl border-2 flex flex-col items-center justify-center p-2 transition-all cursor-pointer text-center ${sId ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-dashed border-slate-200'} ${margin}">
-                            ${!sId ? `<i class="fas fa-plus text-slate-200"></i>` : `
-                                <div class="w-full h-full flex flex-col justify-center gap-1">
-                                    <span class="text-[10px] font-bold text-slate-800 leading-tight line-clamp-2">${student.name}</span>
-                                    ${currentView === 'live' ? `
-                                        <div class="flex gap-1 justify-center mt-1">
-                                            <button onclick="event.stopPropagation(); toggleStatus('${sId}', 'att')" class="p-1.5 rounded-md ${attendance[sId] ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}">
-                                                <i class="fas fa-user-check text-[10px]"></i>
-                                            </button>
-                                            <button onclick="event.stopPropagation(); toggleStatus('${sId}', 'sub')" class="p-1.5 rounded-md ${submissions[sId] ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-400'}">
-                                                <i class="fas fa-file-upload text-[10px]"></i>
-                                            </button>
+                        <div onclick="handleDeskClick(${r},${c})" class="relative w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center p-1 transition-all ${margin} ${borderClass}">
+                            ${ !sId ? `<i class="fas fa-plus text-slate-300"></i>` : `
+                                <div class="text-center w-full">
+                                    <div class="text-[10px] font-bold leading-tight line-clamp-2 mb-2 ${!isPres && activeTab === 'activity' ? 'text-slate-400' : 'text-slate-800'}">${name}</div>
+                                    ${ activeTab === 'activity' ? `
+                                        <div class="flex gap-1 justify-center" onclick="event.stopPropagation()">
+                                            <button onclick="toggleStatus('${sId}', 'att')" class="w-6 h-6 rounded flex items-center justify-center ${isPres ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-300'}"><i class="fas fa-check text-xs"></i></button>
+                                            <button onclick="toggleStatus('${sId}', 'sub')" class="w-6 h-6 rounded flex items-center justify-center ${isSub ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-300'}"><i class="fas fa-file text-xs"></i></button>
                                         </div>
                                     ` : ''}
                                 </div>
@@ -285,122 +420,241 @@
                 html += `</div>`;
             }
             grid.innerHTML = html;
-        }
+        };
 
-        function handleDeskClick(r, c) {
-            if (currentView !== 'setup') return;
-            const key = `${r}-${c}`;
-            if (seating[key]) {
-                delete seating[key];
-            } else {
-                const assigned = Object.values(seating);
-                const next = students.find(s => !assigned.includes(s.id));
-                if (next) seating[key] = next.id;
-            }
-            saveState();
-            renderGrid();
-        }
-
-        function toggleStatus(id, type) {
-            if (type === 'att') attendance[id] = !attendance[id];
-            else submissions[id] = !submissions[id];
-            renderGrid();
-        }
-
-        function renderBulkControls() {
-            const container = document.getElementById('bulk-controls');
-            let html = '';
-            for (let c = 0; c < 8; c++) {
-                html += `
-                    <div class="flex flex-col gap-1 items-center w-24 ${getColMargin(c)}">
-                        <button onclick="bulkCol(${c}, 'att')" class="text-[9px] bg-blue-50 text-blue-600 px-1 py-1 rounded w-full border border-blue-100 font-bold uppercase">Col ${c+1} Att.</button>
-                        <button onclick="bulkCol(${c}, 'sub')" class="text-[9px] bg-green-50 text-green-600 px-1 py-1 rounded w-full border border-green-100 font-bold uppercase">Col ${c+1} Sub.</button>
-                    </div>
-                `;
-            }
-            container.innerHTML = html;
-        }
-
-        function bulkCol(c, type) {
-            let anyOff = false;
-            for (let r = 0; r < 6; r++) {
-                const id = seating[`${r}-${c}`];
-                if (id && !(type === 'att' ? attendance[id] : submissions[id])) anyOff = true;
-            }
-            for (let r = 0; r < 6; r++) {
-                const id = seating[`${r}-${c}`];
-                if (id) {
-                    if (type === 'att') attendance[id] = anyOff;
-                    else submissions[id] = anyOff;
+        // --- NAVIGATION ---
+        window.switchTab = (tab) => {
+            // Update Tab UI
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                if(b.dataset.tab === tab) {
+                    b.classList.add('bg-blue-600', 'text-white', 'active');
+                    b.classList.remove('text-slate-500', 'hover:bg-slate-100');
+                } else {
+                    b.classList.remove('bg-blue-600', 'text-white', 'active');
+                    b.classList.add('text-slate-500', 'hover:bg-slate-100');
                 }
-            }
+            });
+
+            // Show Sections
+            document.getElementById('view-layout-activity').classList.toggle('hidden', tab === 'history');
+            document.getElementById('view-history').classList.toggle('hidden', tab !== 'history');
+
+            // Toggle Sidebar Controls
+            document.getElementById('sidebar-roster').classList.toggle('hidden', tab !== 'layout');
+            document.getElementById('sidebar-actions-layout').classList.toggle('hidden', tab !== 'layout');
+            document.getElementById('sidebar-actions-activity').classList.toggle('hidden', tab !== 'activity');
+            
+            // Re-render grid to update bulk headers and click interactions
             renderGrid();
+            if(tab === 'history') loadHistory();
+        };
+
+        window.backToDash = () => {
+            currentClassId = null;
+            showScreen('dashboard');
+            loadDashboard();
+        };
+
+        function showScreen(screenName) {
+            document.getElementById('screen-login').classList.add('hidden');
+            document.getElementById('screen-dashboard').classList.add('hidden');
+            document.getElementById('screen-app').classList.add('hidden');
+            document.getElementById('screen-setup').classList.add('hidden');
+            
+            if (screenName === 'login') document.getElementById('screen-login').classList.remove('hidden');
+            if (screenName === 'dashboard') document.getElementById('screen-dashboard').classList.remove('hidden');
+            if (screenName === 'app-layout') document.getElementById('screen-app').classList.remove('hidden');
         }
 
-        async function finalizeSession() {
-            const btn = document.getElementById('save-btn');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        // --- INITIALIZATION ---
+        // Run init logic on load
+        window.onload = initFirebase;
 
-            const ts = new Date().toLocaleString();
-            const data = students.map(s => ({
-                date: ts, name: s.name, 
-                present: attendance[s.id] ? 'Yes' : 'No', 
-                submitted: submissions[s.id] ? 'Yes' : 'No'
-            }));
-
-            sessionRecords = [...data, ...sessionRecords];
-            saveState();
-
-            if (GOOGLE_SCRIPT_URL) {
-                try {
-                    await fetch(GOOGLE_SCRIPT_URL, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    });
-                } catch (e) { console.error(e); }
-            }
-
-            attendance = {}; submissions = {};
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-save"></i> Save Session';
-            setView('records');
-        }
-
-        function renderRecordsTable() {
-            const body = document.getElementById('records-body');
-            if (!sessionRecords.length) {
-                body.innerHTML = `<tr><td colspan="4" class="px-6 py-12 text-center text-slate-400">No data saved yet.</td></tr>`;
-                return;
-            }
-            body.innerHTML = sessionRecords.map(r => `
-                <tr class="hover:bg-slate-50">
-                    <td class="px-6 py-4 text-xs text-slate-500">${r.date}</td>
-                    <td class="px-6 py-4 text-sm font-semibold">${r.name}</td>
-                    <td class="px-6 py-4 text-center">
-                        <span class="px-2 py-1 rounded-full text-[10px] font-bold ${r.present === 'Yes' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-400'}">${r.present}</span>
-                    </td>
-                    <td class="px-6 py-4 text-center">
-                        <span class="px-2 py-1 rounded-full text-[10px] font-bold ${r.submitted === 'Yes' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}">${r.submitted}</span>
-                    </td>
-                </tr>
-            `).join('');
-        }
-
-        function downloadCSV() {
-            if (!sessionRecords.length) return;
-            const csv = "Date,Name,Present,Submitted\n" + sessionRecords.map(r => `"${r.date}","${r.name}","${r.present}","${r.submitted}"`).join("\n");
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `Attendance_${new Date().toISOString().split('T')[0]}.csv`;
-            a.click();
-        }
-
-        window.onload = init;
     </script>
+    <style>
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-900 h-screen overflow-hidden">
+
+    <!-- LOADING OVERLAY -->
+    <div id="loading-overlay" class="fixed inset-0 bg-white/80 z-50 flex items-center justify-center hidden backdrop-blur-sm">
+        <div class="animate-spin text-blue-600 text-4xl"><i class="fas fa-circle-notch"></i></div>
+    </div>
+
+    <!-- 0. SETUP REQUIRED SCREEN -->
+    <div id="screen-setup" class="hidden fixed inset-0 bg-slate-900 z-[60] flex flex-col items-center justify-center p-8 text-white">
+        <div class="max-w-xl text-center">
+            <div class="text-6xl text-yellow-400 mb-6"><i class="fas fa-triangle-exclamation"></i></div>
+            <h1 class="text-3xl font-bold mb-4">Configuration Required</h1>
+            <p class="text-slate-300 mb-8 text-lg">To use this app, you must connect it to your Firebase project.</p>
+            
+            <div class="bg-slate-800 rounded-xl p-6 text-left mb-8 shadow-lg border border-slate-700">
+                <ol class="list-decimal pl-5 space-y-3 text-sm text-slate-300 font-mono">
+                    <li>Open this file (index.html) in your editor.</li>
+                    <li>Locate the <span class="text-yellow-400">firebaseConfig</span> object (around line 18).</li>
+                    <li>Paste your Firebase API keys inside the object.</li>
+                    <li>Save and refresh this page.</li>
+                </ol>
+            </div>
+            
+            <button onclick="location.reload()" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all shadow-lg active:scale-95">
+                <i class="fas fa-sync-alt mr-2"></i> I Have Updated the Code
+            </button>
+        </div>
+    </div>
+
+    <!-- 1. LOGIN SCREEN -->
+    <div id="screen-login" class="h-full flex flex-col items-center justify-center p-4">
+        <div class="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md w-full border border-slate-100">
+            <div class="bg-blue-100 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-blue-600 text-3xl">
+                <i class="fas fa-chalkboard-teacher"></i>
+            </div>
+            <h1 class="text-3xl font-extrabold text-slate-800 mb-2">ClassManager Pro</h1>
+            <p class="text-slate-500 mb-8">Manage classes, layouts, and attendance across all your devices.</p>
+            <button onclick="login()" class="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-slate-800 transition-transform active:scale-95 flex items-center justify-center gap-3 shadow-lg">
+                <i class="fab fa-google"></i> Sign in with Google
+            </button>
+            <div class="mt-6 text-xs text-slate-400">
+                Secure Cloud Storage • Multi-Device Sync • Free Tier
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. DASHBOARD SCREEN -->
+    <div id="screen-dashboard" class="h-full hidden flex flex-col">
+        <header class="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center shadow-sm z-10">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 text-white p-2 rounded-lg"><i class="fas fa-shapes"></i></div>
+                <h1 class="font-bold text-xl tracking-tight">ClassManager</h1>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-3 bg-slate-100 px-3 py-1.5 rounded-full">
+                    <img id="user-avatar" class="w-6 h-6 rounded-full" src="" alt="">
+                    <span id="user-name" class="text-sm font-bold text-slate-700 truncate max-w-[100px]">User</span>
+                </div>
+                <button onclick="logout()" class="text-slate-400 hover:text-red-500"><i class="fas fa-sign-out-alt"></i></button>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-y-auto p-8 max-w-6xl mx-auto w-full">
+            <div class="flex justify-between items-end mb-8">
+                <div>
+                    <h2 class="text-3xl font-extrabold text-slate-800">Your Classes</h2>
+                    <p class="text-slate-500 mt-1">Select a class to manage layout and attendance.</p>
+                </div>
+                <button onclick="createClass()" class="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all flex items-center gap-2">
+                    <i class="fas fa-plus"></i> New Class
+                </button>
+            </div>
+
+            <div id="class-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Classes injected here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- 3. CLASS APP SCREEN -->
+    <div id="screen-app" class="h-full hidden flex overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-72 bg-slate-900 text-white flex flex-col border-r border-slate-800 z-20 shadow-xl">
+            <div class="p-6 border-b border-slate-800">
+                <button onclick="backToDash()" class="text-slate-400 hover:text-white text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <i class="fas fa-arrow-left"></i> Dashboard
+                </button>
+                <h2 id="class-name-display" class="text-xl font-bold truncate">Class Name</h2>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-6">
+                <!-- Roster Section (Only in Layout Mode) -->
+                <div id="sidebar-roster">
+                    <div class="flex justify-between items-end mb-4">
+                        <h3 class="text-xs font-bold text-slate-500 uppercase">Roster</h3>
+                        <span id="student-count" class="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">0</span>
+                    </div>
+                    <div id="roster-list" class="max-h-60 overflow-y-auto mb-4 pr-2 space-y-1"></div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="addStudent()" class="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg text-xs text-slate-300 transition-colors">Add One</button>
+                        <button onclick="openBulkModal()" class="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg text-xs text-slate-300 transition-colors">Bulk Add</button>
+                    </div>
+                </div>
+
+                <!-- Context Actions -->
+                <div class="mt-8 pt-8 border-t border-slate-800">
+                    <div id="sidebar-actions-layout">
+                        <p class="text-xs text-slate-500 mb-3">Changes are unsaved.</p>
+                        <button onclick="saveClassData()" id="btn-save-layout" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold shadow-lg transition-all mb-2">
+                            <i class="fas fa-save"></i> Save Layout
+                        </button>
+                    </div>
+
+                    <div id="sidebar-actions-activity" class="hidden">
+                        <p class="text-xs text-slate-500 mb-3">Record current status.</p>
+                        <button onclick="saveSession()" id="btn-save-session" class="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold shadow-lg transition-all mb-2">
+                            <i class="fas fa-cloud-upload-alt"></i> Save Session
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main View -->
+        <main class="flex-1 flex flex-col bg-slate-50 overflow-hidden relative">
+            <!-- Top Tabs -->
+            <div class="bg-white border-b border-slate-200 px-8 py-3 flex gap-4 shadow-sm">
+                <button onclick="switchTab('layout')" data-tab="layout" class="tab-btn active px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2 bg-blue-600 text-white">
+                    <i class="fas fa-th"></i> Layout
+                </button>
+                <button onclick="switchTab('activity')" data-tab="activity" class="tab-btn px-4 py-2 rounded-lg font-bold text-sm text-slate-500 hover:bg-slate-100 transition-colors flex items-center gap-2">
+                    <i class="fas fa-user-check"></i> Activity
+                </button>
+                <button onclick="switchTab('history')" data-tab="history" class="tab-btn px-4 py-2 rounded-lg font-bold text-sm text-slate-500 hover:bg-slate-100 transition-colors flex items-center gap-2">
+                    <i class="fas fa-history"></i> History
+                </button>
+            </div>
+
+            <!-- Content Area -->
+            <div class="flex-1 overflow-y-auto p-8 relative">
+                
+                <!-- VIEW: Layout & Activity (Shared Grid) -->
+                <div id="view-layout-activity" class="flex flex-col items-center min-h-full">
+                    <!-- Bulk Headers -->
+                    <div id="bulk-header" class="hidden flex justify-center mb-4 gap-0"></div>
+                    
+                    <!-- The Grid -->
+                    <div id="grid-container" class="mb-12"></div>
+
+                    <!-- Whiteboard -->
+                    <div class="mt-auto w-full max-w-2xl mx-auto">
+                        <div class="bg-slate-800 h-12 rounded-t-xl flex items-center justify-center text-slate-500 text-xs font-bold tracking-widest uppercase shadow-lg border-b-4 border-slate-700">
+                            Whiteboard
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW: History -->
+                <div id="view-history" class="hidden max-w-3xl mx-auto">
+                    <h3 class="text-lg font-bold text-slate-800 mb-6">Session History</h3>
+                    <div id="history-list" class="space-y-4"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Bulk Modal -->
+    <div id="bulk-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
+            <h3 class="font-bold text-lg mb-2">Bulk Add Students</h3>
+            <p class="text-sm text-slate-500 mb-4">Paste names, one per line.</p>
+            <textarea id="bulk-input" class="w-full h-48 border border-slate-200 rounded-xl p-4 text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+            <div class="flex justify-end gap-3">
+                <button onclick="closeBulkModal()" class="text-slate-500 font-bold text-sm px-4">Cancel</button>
+                <button onclick="processBulk()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold text-sm">Import</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
