@@ -10,8 +10,11 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, query, orderBy, getDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, query, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
+        // ==========================================
+        // FIREBASE CONFIGURATION
+        // ==========================================
         const firebaseConfig = {
             apiKey: "AIzaSyAWjkNA5Bz80oJPLfRVJ-Ez4psCL7mP89U",
             authDomain: "classroom-management-widget.firebaseapp.com",
@@ -20,6 +23,7 @@
             messagingSenderId: "97216302017",
             appId: "1:97216302017:web:67e49d5be0f015dcd47d40"
         };
+        // ==========================================
 
         // Global State
         let app, auth, db, provider;
@@ -74,18 +78,28 @@
             if (!currentUser) return;
             showScreen('dashboard');
             const list = document.getElementById('class-grid');
-            list.innerHTML = '<div class="col-span-full text-center text-gray-400 py-10"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>';
+            list.innerHTML = '<div class="col-span-full text-center text-gray-400 py-10"><i class="fas fa-circle-notch fa-spin"></i> Loading classes...</div>';
             
             try {
+                // Fetch classes securely
                 const q = query(collection(db, `users/${currentUser.uid}/classes`));
                 const snapshot = await getDocs(q);
                 
                 if (snapshot.empty) {
-                    list.innerHTML = `<div class="col-span-full text-center py-10"><h3 class="text-slate-600 font-medium">No classes yet</h3></div>`;
+                    list.innerHTML = `
+                        <div class="col-span-full text-center py-10">
+                            <div class="bg-slate-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4 text-slate-400">
+                                <i class="fas fa-folder-open text-2xl"></i>
+                            </div>
+                            <h3 class="text-slate-600 font-medium">No classes yet</h3>
+                            <p class="text-slate-400 text-sm">Create your first class to get started.</p>
+                        </div>`;
                 } else {
                     const classes = [];
                     snapshot.forEach(doc => classes.push({ id: doc.id, ...doc.data() }));
+                    // Sort alphabetically
                     classes.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+                    
                     list.innerHTML = '';
                     classes.forEach(cls => {
                         list.innerHTML += `
@@ -96,7 +110,8 @@
                     });
                 }
             } catch (e) {
-                list.innerHTML = `<p class="text-red-500 text-center py-10">Error loading classes.</p>`;
+                console.error("Dashboard error:", e);
+                list.innerHTML = `<p class="text-red-500 text-center py-10">Error loading classes: ${e.message}</p>`;
             }
         };
 
@@ -140,13 +155,11 @@
             } catch (e) { btn.innerHTML = '<i class="fas fa-save"></i> Save Layout'; }
         };
 
-        // NEW: Function to save specific types of records with a label
         window.saveSpecificSession = async (type) => {
             if (!currentClassId) return;
             
-            // Ask for a label
             const label = prompt(`Enter a label for this ${type} record\n(e.g., 'Week 1', 'Math Homework'):`);
-            if (label === null) return; // User cancelled
+            if (label === null) return; 
 
             const btnId = type === 'attendance' ? 'btn-save-att' : 'btn-save-sub';
             const btn = document.getElementById(btnId);
@@ -169,7 +182,6 @@
             try {
                 await addDoc(collection(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions`), sessionData);
                 
-                // Clear only the buffer that was just saved
                 if (type === 'attendance') attendanceBuffer = {};
                 if (type === 'submission') submissionBuffer = {};
                 renderGrid();
@@ -200,7 +212,7 @@
             container.innerHTML = '<div class="text-center py-8 text-slate-400"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>';
             try {
                 const snapshot = await getDocs(query(collection(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions`)));
-                if (snapshot.empty) { container.innerHTML = '<div class="text-center py-8 text-slate-400">No records.</div>'; return; }
+                if (snapshot.empty) { container.innerHTML = '<div class="text-center py-8 text-slate-400">No records found.</div>'; return; }
                 const sessions = [];
                 snapshot.forEach(doc => sessions.push({ id: doc.id, ...doc.data() }));
                 sessions.sort((a, b) => b.timestamp - a.timestamp);
@@ -208,21 +220,18 @@
                 let html = '<div class="space-y-4">';
                 sessions.forEach(sess => {
                     const sid = sess.id;
-                    
-                    // Legacy support check
                     const getStatus = (r) => r.status !== undefined ? r.status : (sess.type === 'submission' ? r.submitted : r.present);
                     
                     const activeCount = sess.records.filter(getStatus).length;
                     const totalCount = sess.records.length;
                     
-                    // Display Settings
-                    const isAtt = sess.type !== 'submission'; // Default to attendance for legacy records
+                    const isAtt = sess.type !== 'submission'; 
                     const typeLabel = isAtt ? 'Attendance' : 'Submission';
                     const countLabel = isAtt ? 'Present' : 'Submitted';
                     const colorClass = isAtt ? 'text-blue-600 bg-blue-50 border-blue-200' : 'text-green-600 bg-green-50 border-green-200';
                     const dotColorTrue = isAtt ? 'bg-blue-400' : 'bg-green-400';
                     const dotColorFalse = 'bg-red-400';
-                    const userLabel = sess.label || typeLabel; // Falls back to basic label if they left it blank
+                    const userLabel = sess.label || typeLabel; 
 
                     html += `
                         <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
@@ -256,8 +265,8 @@
                             </div>
                         </div>`;
                 });
-                container.innerHTML = html;
-            } catch (e) { container.innerHTML = '<p class="text-red-500">Error.</p>'; }
+                container.innerHTML = html + '</div>';
+            } catch (e) { container.innerHTML = '<p class="text-red-500">Error loading history.</p>'; }
         };
 
         window.toggleSessionDetails = (id) => {
@@ -266,8 +275,265 @@
             const icon = document.getElementById(`icon-${id}`);
             if (!el) return;
             const open = el.classList.contains('details-expanded');
-            if (open) { el.classList.remove('details-expanded'); if(txt) txt.innerText = 'Details'; if(icon) icon.style.transform = 'rotate(0)'; }
-            else { el.classList.add('details-expanded'); if(txt) txt.innerText = 'Hide'; if(icon) icon.style.transform = 'rotate(180deg)'; }
+            if (open) { 
+                el.classList.remove('details-expanded'); 
+                if(txt) txt.innerText = 'Details'; 
+                if(icon) icon.style.transform = 'rotate(0)'; 
+            } else { 
+                el.classList.add('details-expanded'); 
+                if(txt) txt.innerText = 'Hide'; 
+                if(icon) icon.style.transform = 'rotate(180deg)'; 
+            }
         };
 
         window.addStudent = () => {
+            const name = prompt("Student Name:");
+            if (name) { classData.students.push({ id: Date.now().toString(), name: name }); updateStudentListUI(); renderGrid(); }
+        };
+
+        window.openBulkModal = () => document.getElementById('bulk-modal').classList.remove('hidden');
+        window.closeBulkModal = () => document.getElementById('bulk-modal').classList.add('hidden');
+        
+        window.processBulk = () => {
+            const txt = document.getElementById('bulk-input').value;
+            const names = txt.split('\n').map(n => n.trim()).filter(n => n);
+            names.forEach(n => { classData.students.push({ id: Date.now().toString() + Math.random().toString().substr(2, 5), name: n }); });
+            updateStudentListUI(); closeBulkModal(); document.getElementById('bulk-input').value = '';
+        };
+
+        window.deleteStudent = (id) => {
+            if(!confirm("Remove student?")) return;
+            classData.students = classData.students.filter(s => s.id !== id);
+            for(let key in classData.layout) { if(classData.layout[key] === id) delete classData.layout[key]; }
+            updateStudentListUI(); renderGrid();
+        };
+
+        function updateStudentListUI() {
+            const div = document.getElementById('roster-list');
+            div.innerHTML = classData.students.map(s => `<div class="flex justify-between items-center text-sm py-1 group"><span>${s.name}</span><button onclick="deleteStudent('${s.id}')" class="text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i class="fas fa-trash"></i></button></div>`).join('');
+            document.getElementById('student-count').innerText = classData.students.length;
+        }
+
+        const ROWS = 6; const COLS = 8;
+        window.handleDeskClick = (r, c) => {
+            const tab = document.querySelector('.tab-btn.active').dataset.tab;
+            if (tab !== 'layout') return;
+            const key = `${r}-${c}`;
+            if (classData.layout[key]) { delete classData.layout[key]; }
+            else {
+                const seatedIds = Object.values(classData.layout);
+                const next = classData.students.find(s => !seatedIds.includes(s.id));
+                if (next) classData.layout[key] = next.id;
+            }
+            renderGrid();
+        };
+
+        window.toggleStatus = (id, type) => {
+            if (type === 'att') attendanceBuffer[id] = !attendanceBuffer[id];
+            if (type === 'sub') submissionBuffer[id] = !submissionBuffer[id];
+            renderGrid();
+        };
+
+        window.bulkToggle = (c, type) => {
+            let anyOff = false;
+            for(let r=0; r<ROWS; r++) {
+                const sId = classData.layout[`${r}-${c}`];
+                if(sId) {
+                    const val = type === 'att' ? attendanceBuffer[sId] : submissionBuffer[sId];
+                    if(!val) anyOff = true;
+                }
+            }
+            for(let r=0; r<ROWS; r++) {
+                const sId = classData.layout[`${r}-${c}`];
+                if(sId) {
+                    if(type === 'att') attendanceBuffer[sId] = anyOff;
+                    if(type === 'sub') submissionBuffer[sId] = anyOff;
+                }
+            }
+            renderGrid();
+        };
+
+        window.renderGrid = () => {
+            const tab = document.querySelector('.tab-btn.active')?.dataset.tab || 'layout';
+            const grid = document.getElementById('grid-container');
+            const bulkContainer = document.getElementById('bulk-header');
+            let html = '';
+            const isTable = (r, c) => r === 0 ? (c >= 2 && c <= 5) : true;
+            const getMargin = (c) => (c === 1 || c === 3 || c === 5) ? 'mr-10' : 'mr-1';
+
+            if (tab === 'activity') {
+                bulkContainer.classList.remove('hidden');
+                let bHtml = '<div class="flex mb-4 justify-center">';
+                for(let c=0; c<COLS; c++) {
+                    const margin = getMargin(c);
+                    bHtml += `
+                        <div class="flex flex-col gap-1 w-24 items-center ${margin}">
+                            <button onclick="bulkToggle(${c}, 'att')" class="w-full text-[9px] font-bold bg-blue-100 text-blue-600 rounded py-1 hover:bg-blue-200 uppercase">ALL ATT</button>
+                            <button onclick="bulkToggle(${c}, 'sub')" class="w-full text-[9px] font-bold bg-green-100 text-green-600 rounded py-1 hover:bg-green-200 uppercase">ALL SUB</button>
+                        </div>`;
+                }
+                bHtml += '</div>';
+                bulkContainer.innerHTML = bHtml;
+            } else {
+                bulkContainer.classList.add('hidden');
+                bulkContainer.innerHTML = '';
+            }
+
+            for(let r=0; r<ROWS; r++) {
+                html += `<div class="flex mb-2 justify-center">`;
+                for(let c=0; c<COLS; c++) {
+                    const margin = getMargin(c);
+                    if (!isTable(r, c)) { html += `<div class="w-24 h-24 ${margin}"></div>`; continue; }
+                    const sId = classData.layout[`${r}-${c}`];
+                    const student = sId ? classData.students.find(s => s.id === sId) : null;
+                    const isPres = attendanceBuffer[sId]; const isSub = submissionBuffer[sId];
+                    let borderClass = sId ? 'border-slate-300 bg-white shadow-sm' : 'border-slate-200 border-dashed bg-slate-50';
+                    
+                    html += `
+                        <div onclick="handleDeskClick(${r},${c})" class="relative w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center p-1 transition-all ${margin} ${borderClass}">
+                            ${ !sId ? `<i class="fas fa-plus text-slate-300"></i>` : `
+                                <div class="text-center w-full">
+                                    <div class="text-[10px] font-bold leading-tight mb-2 ${!isPres && tab === 'activity' ? 'text-slate-400' : 'text-slate-800'}">${student.name}</div>
+                                    ${ tab === 'activity' ? `
+                                        <div class="flex gap-1 justify-center" onclick="event.stopPropagation()">
+                                            <button onclick="toggleStatus('${sId}', 'att')" class="w-6 h-6 rounded flex items-center justify-center ${isPres ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-300'}"><i class="fas fa-check text-[10px]"></i></button>
+                                            <button onclick="toggleStatus('${sId}', 'sub')" class="w-6 h-6 rounded flex items-center justify-center ${isSub ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-300'}"><i class="fas fa-file text-[10px]"></i></button>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `}
+                        </div>`;
+                }
+                html += `</div>`;
+            }
+            grid.innerHTML = html;
+        };
+
+        window.switchTab = (tab) => {
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                if(b.dataset.tab === tab) { b.classList.add('bg-blue-600', 'text-white', 'active'); b.classList.remove('text-slate-500'); }
+                else { b.classList.remove('bg-blue-600', 'text-white', 'active'); b.classList.add('text-slate-500'); }
+            });
+            document.getElementById('view-layout-activity').classList.toggle('hidden', tab === 'history');
+            document.getElementById('view-history').classList.toggle('hidden', tab !== 'history');
+            document.getElementById('sidebar-roster').classList.toggle('hidden', tab !== 'layout');
+            document.getElementById('sidebar-actions-layout').classList.toggle('hidden', tab !== 'layout');
+            document.getElementById('sidebar-actions-activity').classList.toggle('hidden', tab !== 'activity');
+            renderGrid(); if(tab === 'history') loadHistory();
+        };
+
+        window.backToDash = () => { currentClassId = null; loadDashboard(); };
+        function showScreen(name) {
+            ['screen-login', 'screen-dashboard', 'screen-app', 'screen-setup'].forEach(s => document.getElementById(s).classList.add('hidden'));
+            const map = { login: 'screen-login', dashboard: 'screen-dashboard', 'app-layout': 'screen-app' };
+            document.getElementById(map[name] || name).classList.remove('hidden');
+        }
+
+        window.onload = initFirebase;
+    </script>
+    <style>
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .details-expanded { max-height: 1000px !important; opacity: 1 !important; margin-top: 8px; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-900 h-screen overflow-hidden">
+
+    <div id="loading-overlay" class="fixed inset-0 bg-white/80 z-50 flex items-center justify-center hidden backdrop-blur-sm">
+        <div class="animate-spin text-blue-600 text-4xl"><i class="fas fa-circle-notch"></i></div>
+    </div>
+
+    <div id="screen-setup" class="hidden fixed inset-0 bg-slate-900 z-[60] flex flex-col items-center justify-center p-8 text-white">
+        <h1 class="text-3xl font-bold mb-4">Config Required</h1>
+        <p class="mb-4">Paste your Firebase Config in index.html line 18.</p>
+        <button onclick="location.reload()" class="bg-blue-600 px-8 py-3 rounded-xl">Refresh</button>
+    </div>
+
+    <div id="screen-login" class="h-full flex flex-col items-center justify-center p-4">
+        <div class="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md w-full">
+            <h1 class="text-3xl font-bold mb-6">ClassManager Pro</h1>
+            <button onclick="login()" class="w-full bg-slate-900 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-3">
+                <i class="fab fa-google"></i> Sign in with Google
+            </button>
+        </div>
+    </div>
+
+    <div id="screen-dashboard" class="h-full hidden flex flex-col">
+        <header class="bg-white border-b px-8 py-4 flex justify-between items-center shadow-sm">
+            <h1 class="font-bold text-xl">ClassManager</h1>
+            <div class="flex items-center gap-4">
+                <img id="user-avatar" class="w-6 h-6 rounded-full" src="">
+                <span id="user-name" class="text-sm font-bold">User</span>
+                <button onclick="logout()"><i class="fas fa-sign-out-alt"></i></button>
+            </div>
+        </header>
+        <main class="flex-1 overflow-y-auto p-8">
+            <div class="flex justify-between mb-8">
+                <h2 class="text-2xl font-bold">Your Classes</h2>
+                <button onclick="createClass()" class="bg-blue-600 text-white px-4 py-2 rounded-lg">+ New Class</button>
+            </div>
+            <div id="class-grid" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+        </main>
+    </div>
+
+    <div id="screen-app" class="h-full hidden flex">
+        <aside class="w-64 bg-slate-900 text-white flex flex-col p-6 border-r">
+            <button onclick="backToDash()" class="text-xs text-slate-400 mb-4 uppercase">← Dashboard</button>
+            <h2 id="class-name-display" class="text-xl font-bold mb-6">Class Name</h2>
+            <div id="sidebar-roster">
+                <div class="flex justify-between text-xs text-slate-500 mb-2 uppercase">Roster <span id="student-count">0</span></div>
+                <div id="roster-list" class="max-h-48 overflow-y-auto mb-4 text-xs"></div>
+                <button onclick="addStudent()" class="w-full bg-slate-800 text-white py-2 rounded text-xs">+ Add Student</button>
+                <button onclick="openBulkModal()" class="w-full mt-2 text-slate-400 text-xs">Bulk Add</button>
+            </div>
+            <div class="mt-auto">
+                <div id="sidebar-actions-layout">
+                    <button onclick="saveClassData()" id="btn-save-layout" class="w-full bg-blue-600 py-3 rounded-xl font-bold text-sm shadow-lg"><i class="fas fa-save"></i> Save Layout</button>
+                </div>
+                <div id="sidebar-actions-activity" class="hidden space-y-2">
+                    <button onclick="saveSpecificSession('attendance')" id="btn-save-att" class="w-full bg-blue-600 text-white hover:bg-blue-500 transition-colors py-3 rounded-xl font-bold text-sm shadow-lg"><i class="fas fa-user-check"></i> Save Attendance</button>
+                    <button onclick="saveSpecificSession('submission')" id="btn-save-sub" class="w-full bg-green-600 text-white hover:bg-green-500 transition-colors py-3 rounded-xl font-bold text-sm shadow-lg"><i class="fas fa-file-upload"></i> Save Submission</button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col bg-slate-50 overflow-hidden relative">
+            <div class="bg-white border-b px-8 py-3 flex gap-4 shadow-sm">
+                <button onclick="switchTab('layout')" data-tab="layout" class="tab-btn px-4 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white active">Layout</button>
+                <button onclick="switchTab('activity')" data-tab="activity" class="tab-btn px-4 py-2 rounded-lg font-bold text-sm text-slate-500">Activity</button>
+                <button onclick="switchTab('history')" data-tab="history" class="tab-btn px-4 py-2 rounded-lg font-bold text-sm text-slate-500">History</button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-8 pb-16">
+                <div id="view-layout-activity" class="flex flex-col items-center">
+                    
+                    <div id="bulk-header" class="hidden w-full"></div>
+
+                    <div id="grid-container"></div>
+                </div>
+                <div id="view-history" class="hidden max-w-2xl mx-auto">
+                    <h3 class="font-bold mb-4">Records</h3>
+                    <div id="history-list"></div>
+                </div>
+            </div>
+
+            <div class="absolute bottom-0 left-0 w-full flex justify-center pointer-events-none z-10">
+                <div class="bg-slate-800 text-white text-[10px] px-24 py-2.5 rounded-t-2xl uppercase tracking-widest font-bold shadow-[0_-10px_30px_rgba(0,0,0,0.15)] pointer-events-auto border-t-2 border-slate-600">
+                    Whiteboard
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="bulk-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 class="font-bold mb-2">Bulk Add</h3>
+            <textarea id="bulk-input" class="w-full h-40 border p-2 mb-4 text-sm" placeholder="One name per line"></textarea>
+            <div class="flex justify-end gap-2">
+                <button onclick="closeBulkModal()" class="text-xs text-slate-500">Cancel</button>
+                <button onclick="processBulk()" class="bg-blue-600 text-white text-xs px-4 py-2 rounded">Add Names</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
