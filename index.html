@@ -10,8 +10,9 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, query, orderBy, getDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, query, orderBy, getDoc, deleteDoc, startAfter, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
+        // REPLACE WITH YOUR FIREBASE CONFIG
         const firebaseConfig = {
             apiKey: "AIzaSyAWjkNA5Bz80oJPLfRVJ-Ez4psCL7mP89U",
             authDomain: "classroom-management-widget.firebaseapp.com",
@@ -28,7 +29,8 @@
         let classData = null; 
         let attendanceBuffer = {};
         let submissionBuffer = {};
-        let historySessions = {}; // Stores history locally for quick editing
+        let historySessions = {}; 
+        let lastVisibleDoc = null; // Tracks pagination for history
 
         function initFirebase() {
             const hasKeys = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey;
@@ -115,9 +117,8 @@
             } catch (e) { alert("Error: " + e.message); }
         };
 
-        // NEW: Delete class function
         window.deleteClass = async (classId, event) => {
-            event.stopPropagation(); // Prevents you from entering the class when clicking the trash can
+            event.stopPropagation(); 
             if(!confirm("Are you sure you want to delete this class? This cannot be undone.")) return;
             try {
                 await deleteDoc(doc(db, `users/${currentUser.uid}/classes/${classId}`));
@@ -202,47 +203,78 @@
             if(!confirm("Are you sure you want to delete this record? This cannot be undone.")) return;
             try {
                 await deleteDoc(doc(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions/${sessId}`));
-                loadHistory(); 
+                // Reload history cleanly from the top
+                loadHistory(false); 
             } catch (e) {
                 alert("Error deleting record: " + e.message);
             }
         };
 
-        window.loadHistory = async () => {
+        window.loadHistory = async (isLoadMore = false) => {
             const container = document.getElementById('history-list');
-            container.innerHTML = '<div class="text-center py-8 text-slate-400"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>';
-            try {
-                const snapshot = await getDocs(query(collection(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions`)));
-                if (snapshot.empty) { container.innerHTML = '<div class="text-center py-8 text-slate-400">No records found.</div>'; return; }
-                const sessions = [];
-                snapshot.forEach(doc => {
-                    let data = doc.data();
-                    // Normalize the legacy records to use "status"
-                    data.records = data.records.map(r => ({
-                        ...r, 
-                        status: r.status !== undefined ? r.status : (data.type === 'submission' ? r.submitted : r.present)
-                    }));
-                    sessions.push({ id: doc.id, ...data });
-                });
-                sessions.sort((a, b) => b.timestamp - a.timestamp);
-                
-                // Store in global object for easy editing
+            const loadMoreBtnContainer = document.getElementById('load-more-container');
+            
+            // Setup UI for fresh load
+            if (!isLoadMore) {
+                container.innerHTML = '<div id="history-items-grid" class="space-y-4"><div class="text-center py-8 text-slate-400"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div></div>';
+                lastVisibleDoc = null;
                 historySessions = {}; 
-                sessions.forEach(s => historySessions[s.id] = s);
+            }
+
+            const limitCount = isLoadMore ? 10 : 20;
+
+            try {
+                // Build the Query
+                let q;
+                if (isLoadMore && lastVisibleDoc) {
+                    q = query(
+                        collection(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions`),
+                        orderBy("timestamp", "desc"),
+                        startAfter(lastVisibleDoc),
+                        limit(limitCount)
+                    );
+                } else {
+                    q = query(
+                        collection(db, `users/${currentUser.uid}/classes/${currentClassId}/sessions`),
+                        orderBy("timestamp", "desc"),
+                        limit(limitCount)
+                    );
+                }
+
+                const snapshot = await getDocs(q);
+                const itemsGrid = document.getElementById('history-items-grid');
                 
-                let html = '<div class="space-y-4">';
-                sessions.forEach(sess => {
-                    const sid = sess.id;
+                if (!isLoadMore) itemsGrid.innerHTML = ''; // Clear loading spinner
+                
+                if (snapshot.empty && !isLoadMore) {
+                    itemsGrid.innerHTML = '<div class="text-center py-8 text-slate-400">No records found.</div>';
+                    if(loadMoreBtnContainer) loadMoreBtnContainer.classList.add('hidden');
+                    return;
+                }
+
+                // Store the last document for the next "Load More" click
+                lastVisibleDoc = snapshot.docs[snapshot.docs.length - 1];
+
+                let html = '';
+                snapshot.forEach(docSnap => {
+                    const sess = docSnap.data();
+                    const sid = docSnap.id;
+                    
+                    // Normalize records 
+                    sess.records = sess.records.map(r => ({
+                        ...r, 
+                        status: r.status !== undefined ? r.status : (sess.type === 'submission' ? r.submitted : r.present)
+                    }));
+                    
+                    historySessions[sid] = { id: sid, ...sess }; 
+                    
                     const activeCount = sess.records.filter(r => r.status).length;
                     const totalCount = sess.records.length;
-                    
                     const isAtt = sess.type !== 'submission'; 
                     const typeLabel = isAtt ? 'Attendance' : 'Submission';
-                    const countLabel = isAtt ? 'Present' : 'Submitted';
                     const colorClass = isAtt ? 'text-blue-600 bg-blue-50 border-blue-200' : 'text-green-600 bg-green-50 border-green-200';
                     const dotColorTrue = isAtt ? 'bg-blue-400' : 'bg-green-400';
-                    const dotColorFalse = 'bg-red-400';
-                    const userLabel = sess.label || typeLabel; 
+                    const userLabel = sess.label || typeLabel;
 
                     html += `
                         <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm transition-all duration-300">
@@ -253,9 +285,12 @@
                                         <h4 class="font-bold text-slate-700 text-sm truncate" title="${userLabel}">${userLabel}</h4>
                                     </div>
                                     <p class="text-[10px] text-slate-400 font-medium mb-1">${sess.date}</p>
-                                    <p id="hist-count-${sid}" class="text-[10px] text-slate-500 font-bold uppercase">${countLabel}: ${activeCount}/${totalCount}</p>
+                                    <p class="text-[10px] text-slate-500 font-bold uppercase">${isAtt ? 'Present' : 'Submitted'}: <span id="hist-count-${sid}">${activeCount}/${totalCount}</span></p>
                                 </div>
                                 <div class="flex items-center gap-2 pl-2">
+                                    <button onclick="exportToCSV('${sid}')" class="text-slate-500 hover:text-blue-600 bg-slate-50 border border-slate-200 p-1.5 rounded-lg transition-colors" title="Export to CSV">
+                                        <i class="fas fa-file-csv"></i>
+                                    </button>
                                     <button onclick="toggleSessionDetails('${sid}')" class="text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center hover:bg-slate-100 transition-colors">
                                         <span id="btn-text-${sid}">Details</span> <i id="icon-${sid}" class="fas fa-chevron-down ml-2 transition-transform duration-300"></i>
                                     </button>
@@ -270,7 +305,7 @@
                                 <div class="border-t border-slate-100 pt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
                                     ${sess.records.map(r => `
                                         <div onclick="toggleHistoryStatus('${sid}', '${r.id}')" class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100 cursor-pointer hover:border-blue-300 transition-colors">
-                                            <div id="hist-dot-${sid}-${r.id}" class="w-2 h-2 rounded-full ${r.status ? dotColorTrue : dotColorFalse}"></div>
+                                            <div id="hist-dot-${sid}-${r.id}" class="w-2 h-2 rounded-full ${r.status ? dotColorTrue : 'bg-red-400'}"></div>
                                             <span id="hist-name-${sid}-${r.id}" class="truncate ${!r.status ? 'text-red-500 font-medium' : 'text-slate-600'}">${r.name}</span>
                                         </div>
                                     `).join('')}
@@ -283,15 +318,32 @@
                             </div>
                         </div>`;
                 });
-                container.innerHTML = html + '</div>';
-            } catch (e) { container.innerHTML = '<p class="text-red-500">Error loading history.</p>'; }
+
+                itemsGrid.insertAdjacentHTML('beforeend', html);
+
+                // Handle "Load More" Button visibility
+                if (snapshot.docs.length < limitCount) {
+                    loadMoreBtnContainer.innerHTML = '<p class="text-slate-400 text-xs py-4 text-center">End of history</p>';
+                    loadMoreBtnContainer.classList.remove('hidden');
+                } else {
+                    loadMoreBtnContainer.innerHTML = `
+                        <button onclick="loadHistory(true)" class="mt-4 mb-8 bg-white border border-slate-200 text-slate-600 px-6 py-2 rounded-full text-xs font-bold hover:bg-slate-50 shadow-sm transition-all mx-auto block">
+                            Load 10 More Records
+                        </button>`;
+                    loadMoreBtnContainer.classList.remove('hidden');
+                }
+
+            } catch (e) {
+                console.error("History Error:", e);
+                const itemsGrid = document.getElementById('history-items-grid');
+                if(itemsGrid) itemsGrid.innerHTML += `<p class="text-red-500 text-center py-4">Error loading records.</p>`;
+            }
         };
 
-        // NEW: Toggle individual student status inside history edit
         window.toggleHistoryStatus = (sessId, studentId) => {
             const sess = historySessions[sessId];
             const student = sess.records.find(r => r.id === studentId);
-            student.status = !student.status; // Flip status in memory
+            student.status = !student.status; 
 
             const dot = document.getElementById(`hist-dot-${sessId}-${studentId}`);
             const text = document.getElementById(`hist-name-${sessId}-${studentId}`);
@@ -299,7 +351,6 @@
             const isAtt = sess.type !== 'submission';
             const dotColorTrue = isAtt ? 'bg-blue-400' : 'bg-green-400';
 
-            // Visually update the UI instantly
             if(student.status) {
                 dot.className = `w-2 h-2 rounded-full ${dotColorTrue}`;
                 text.className = `truncate text-slate-600`;
@@ -308,11 +359,9 @@
                 text.className = `truncate text-red-500 font-medium`;
             }
 
-            // Show the "Save Changes" button for this session
             document.getElementById(`hist-save-container-${sessId}`).classList.remove('hidden');
         };
 
-        // NEW: Push history edits back to database
         window.saveHistoryEdits = async (sessId) => {
             const btn = document.getElementById(`hist-save-btn-${sessId}`);
             const originalHTML = btn.innerHTML;
@@ -324,16 +373,43 @@
                     records: sess.records
                 });
                 
+                // Update local UI count without reloading everything
+                const activeCount = sess.records.filter(r => r.status).length;
+                document.getElementById(`hist-count-${sessId}`).innerText = `${activeCount}/${sess.records.length}`;
+
                 btn.innerHTML = '<i class="fas fa-check"></i> Saved';
                 setTimeout(() => {
                     document.getElementById(`hist-save-container-${sessId}`).classList.add('hidden');
                     btn.innerHTML = originalHTML;
-                    loadHistory(); // Reloads history to update the count (X/Y) at the top of the card
                 }, 1000);
             } catch(e) {
                 alert("Error saving edits: " + e.message);
                 btn.innerHTML = originalHTML;
             }
+        };
+
+        window.exportToCSV = (sessId) => {
+            const sess = historySessions[sessId];
+            if (!sess) return;
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += `Record Label,${sess.label}\n`;
+            csvContent += `Date,${sess.date}\n`;
+            csvContent += `Type,${sess.type.toUpperCase()}\n\n`;
+            csvContent += "Student Name,Status\n";
+
+            sess.records.forEach(r => {
+                const statusText = r.status ? (sess.type === 'attendance' ? "Present" : "Submitted") : "Missing";
+                csvContent += `"${r.name}",${statusText}\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `${sess.label.replace(/\s+/g, '_')}_${sess.type}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         };
 
         window.toggleSessionDetails = (id) => {
@@ -486,7 +562,7 @@
             document.getElementById('sidebar-roster').classList.toggle('hidden', tab !== 'layout');
             document.getElementById('sidebar-actions-layout').classList.toggle('hidden', tab !== 'layout');
             document.getElementById('sidebar-actions-activity').classList.toggle('hidden', tab !== 'activity');
-            renderGrid(); if(tab === 'history') loadHistory();
+            renderGrid(); if(tab === 'history') loadHistory(false);
         };
 
         window.backToDash = () => { currentClassId = null; loadDashboard(); };
@@ -513,7 +589,7 @@
 
     <div id="screen-setup" class="hidden fixed inset-0 bg-slate-900 z-[60] flex flex-col items-center justify-center p-8 text-white">
         <h1 class="text-3xl font-bold mb-4">Config Required</h1>
-        <p class="mb-4">Paste your Firebase Config in index.html line 18.</p>
+        <p class="mb-4">Paste your Firebase Config in index.html.</p>
         <button onclick="location.reload()" class="bg-blue-600 px-8 py-3 rounded-xl">Refresh</button>
     </div>
 
@@ -579,8 +655,9 @@
                     <div id="grid-container"></div>
                 </div>
                 <div id="view-history" class="hidden max-w-2xl mx-auto">
-                    <h3 class="font-bold mb-4">Records</h3>
+                    <h3 class="font-bold mb-4 text-slate-800">Class History</h3>
                     <div id="history-list"></div>
+                    <div id="load-more-container" class="flex justify-center mt-6 mb-12 hidden"></div>
                 </div>
             </div>
 
