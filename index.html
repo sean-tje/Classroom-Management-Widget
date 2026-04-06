@@ -136,12 +136,13 @@
         window.saveClassData = async () => {
             if (!currentClassId) return;
             const btn = document.getElementById('btn-save-layout');
+            const origHTML = btn.innerHTML;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
             try {
                 await updateDoc(doc(db, `users/${currentUser.uid}/classes/${currentClassId}`), { students: classData.students, layout: classData.layout });
                 btn.innerHTML = '<i class="fas fa-check"></i> Saved';
-                setTimeout(() => btn.innerHTML = '<i class="fas fa-save"></i> Save Layout', 2000);
-            } catch (e) { btn.innerHTML = '<i class="fas fa-save"></i> Save Layout'; }
+                setTimeout(() => btn.innerHTML = origHTML, 2000);
+            } catch (e) { btn.innerHTML = origHTML; }
         };
 
         window.saveSpecificSession = async (type) => {
@@ -518,10 +519,11 @@
             document.getElementById('view-history').classList.toggle('hidden', tab !== 'history');
             document.getElementById('view-overview').classList.toggle('hidden', tab !== 'overview');
             document.getElementById('sidebar-roster').classList.toggle('hidden', tab !== 'layout');
-            document.getElementById('sidebar-actions-activity').classList.toggle('hidden', tab !== 'activity');
             
-            // Show the floating save button only in Layout mode
-            document.getElementById('floating-save-btn').classList.toggle('hidden', tab !== 'layout');
+            // Toggle Dynamic Actions based on context (hidden on history & overview)
+            document.getElementById('btn-save-layout').classList.toggle('hidden', tab !== 'layout');
+            document.getElementById('btn-save-att').classList.toggle('hidden', tab !== 'activity');
+            document.getElementById('btn-save-sub').classList.toggle('hidden', tab !== 'activity');
             
             renderGrid(); 
             if(tab === 'history') loadHistory(false);
@@ -623,13 +625,6 @@
                 <button onclick="addStudent()" class="w-full bg-slate-800 text-white py-2 rounded text-xs">+ Add Student</button>
                 <button onclick="openBulkModal()" class="w-full mt-2 text-slate-400 text-xs">Bulk Add</button>
             </div>
-            
-            <div class="mt-auto">
-                <div id="sidebar-actions-activity" class="hidden space-y-2">
-                    <button onclick="saveSpecificSession('attendance')" id="btn-save-att" class="w-full bg-blue-600 text-white hover:bg-blue-500 transition-colors py-2 rounded-lg font-bold text-xs shadow-lg"><i class="fas fa-user-check"></i> Att.</button>
-                    <button onclick="saveSpecificSession('submission')" id="btn-save-sub" class="w-full bg-green-600 text-white hover:bg-green-500 transition-colors py-2 rounded-lg font-bold text-xs shadow-lg"><i class="fas fa-file-upload"></i> Sub.</button>
-                </div>
-            </div>
         </aside>
 
         <main class="flex-1 flex flex-col bg-slate-50 overflow-hidden relative">
@@ -647,15 +642,25 @@
             
             <div class="flex-1 overflow-y-auto p-6 pb-16 relative">
                 
-                <div id="sidebar-actions-layout" class="absolute top-6 left-6 z-10">
+                <div id="floating-actions" class="absolute top-6 left-6 z-10 flex gap-2">
                     <button onclick="saveClassData()" id="btn-save-layout" class="bg-white border-2 border-blue-600 text-blue-600 hover:bg-blue-50 transition-colors py-2 px-4 rounded-xl font-bold text-sm shadow-md flex items-center gap-2">
                         <i class="fas fa-save"></i> Save Layout
+                    </button>
+                    <button onclick="saveSpecificSession('attendance')" id="btn-save-att" class="hidden bg-blue-600 text-white hover:bg-blue-500 transition-colors py-2 px-4 rounded-xl font-bold text-sm shadow-md flex items-center gap-2">
+                        <i class="fas fa-user-check"></i> Save Attendance
+                    </button>
+                    <button onclick="saveSpecificSession('submission')" id="btn-save-sub" class="hidden bg-green-600 text-white hover:bg-green-500 transition-colors py-2 px-4 rounded-xl font-bold text-sm shadow-md flex items-center gap-2">
+                        <i class="fas fa-file-upload"></i> Save Submission
                     </button>
                 </div>
 
                 <div id="view-layout-activity" class="flex flex-col items-center pt-10">
                     <div id="bulk-header" class="hidden w-full"></div>
                     <div id="grid-container"></div>
+                    
+                    <div class="mt-4 bg-slate-800 text-white text-[10px] px-32 py-3 rounded-xl uppercase tracking-widest font-bold shadow-md border border-slate-600">
+                        Whiteboard
+                    </div>
                 </div>
                 
                 <div id="view-history" class="hidden max-w-2xl mx-auto">
@@ -675,10 +680,6 @@
                     <h3 class="font-bold mb-4 text-slate-800">Student Overview (YTD)</h3>
                     <div id="overview-content"></div>
                 </div>
-            </div>
-
-            <div class="absolute bottom-0 left-0 w-full flex justify-center pointer-events-none z-10">
-                <div class="bg-slate-800 text-white text-[10px] px-24 py-2.5 rounded-t-2xl uppercase tracking-widest font-bold shadow-[0_-10px_30px_rgba(0,0,0,0.15)] pointer-events-auto border-t-2 border-slate-600">Whiteboard</div>
             </div>
         </main>
     </div>
